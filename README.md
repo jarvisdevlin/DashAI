@@ -1,5 +1,8 @@
 # DashAI
 🤖 AI that generates Geometry Dash Level Data
+```diff
+! YOU NEED THE WSLIVEEDITOR GEODE MOD INSTALLED OR ELSE INJECTION WONT WORK !
+```
 ## Features
 - <b>Thoughts</b>  
 Allows you to see what the AI is thinking while placing objects, request takes longer.  
