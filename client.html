@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta property="og:site_name" content="DashAI Client WEB v1.0">
+  <meta content="🤖 AI that generates Geometry Dash Level Data. Created by jarvisdevil." property="og:description">
+  <meta name="theme-color" content="#FF8200">
+  <title>DashAI Client WEB v1.0</title>
+  <script src="https://code.jquery.com/jquery-3.6.4.min.js"></script>
+  <script src="https://code.jquery.com/ui/1.13.2/jquery-ui.min.js"></script>
+  <link rel="stylesheet" href="https://code.jquery.com/ui/1.13.2/themes/dark-hive/jquery-ui.css" />
+  <style>
+    html, body { height: 100%; margin: 0; padding: 0; overflow: hidden; background: #111; color: white; font-family: sans-serif; }
+    #tabs { height: 100vh; display: flex; flex-direction: column; }
+    #title { font-size: 28px; font-weight: bold; margin-right: 30px; text-align: center; }
+    .btn { background: linear-gradient(#FF0000, #8B00FF); color: white; font-size: 24px; padding: 10px; border-radius: 5px; border: none; cursor: pointer; }
+    .btn:hover { background: linear-gradient(#FF0000, #8B5500); }
+    .btn:active { background: linear-gradient(#005500, #0F0000); }
+    .input, .list { background: #000; color: white; border: 1px solid #444; padding: 5px; width: 100%; font-size: 20px; }
+    #history { list-style: none; margin: 0; padding: 0; height: 200px; overflow-y: auto; }
+    .ui-tabs-nav li { background: #111; margin-right: 10px; border-radius: 5px; }
+    .ui-tabs-nav li a { color: white; padding: 10px; text-decoration: none; }
+    .ui-tabs-nav li.ui-tabs-active a { background: #555; font-weight: bold; }
+    .ui-tabs-panel { background: #000; border: 1px solid #444; padding: 10px; overflow-y: auto; flex: 1; }
+    .form-row { margin-bottom: 10px; display: flex; align-items: center; }
+    .form-row label { width: 120px; }
+    .form-row input { width: calc(100% - 130px); }
+  </style>
+</head>
+<body>
+  <div id="title">DashAI Client WEB v1.0 | By: jarvisdevil</div>
+  <div id="tabs" style="padding: 0 10px;">
+    <ul>
+      <li><a href="#prompt">Prompt</a></li>
+      <li><a href="#thoughts">Thoughts</a></li>
+      <li><a href="#history">History</a></li>
+      <li><a href="#inject">Inject</a></li>
+      <li><a href="#raw">Raw</a></li>
+      <li><a href="#settings">Settings</a></li>
+    </ul>
+
+    <div id="prompt">
+      <textarea id="promptInput" class="input" rows="10" placeholder="Enter your prompt. DashAI can only places object and can may mess up your request because of its education and limitations, you can view backend info to see why. For better generation, be very specific. If you want the request to take less time, use less characters and turn off thinking."></textarea>
+      <button id="sendBtn" class="btn" style="margin-top:10px;">Send</button>
+    </div>
+
+    <div id="thoughts">
+      <textarea id="thoughtsOutput" class="input" rows="10" readonly></textarea>
+    </div>
+
+    <div id="history">
+      <ul id="historyList"></ul>
+    </div>
+
+    <div id="inject">
+      <textarea id="injectInput" class="input" rows="10" placeholder="Enter level data to inject"></textarea>
+      <button id="injectBtn" class="btn" style="margin-top:10px;">Inject</button>
+    </div>
+
+    <div id="raw">
+      <textarea id="rawOutput" class="input" rows="10" readonly placeholder="Level data goes here"></textarea>
+    </div>
+
+    <div id="settings">
+      <div class="form-row">
+        <label>Extra Info:</label><input type="text" id="extraInput" class="input" />
+      </div>
+      <div class="form-row">
+        <label>AI API:</label><input type="text" id="apiInput" class="input" />
+      </div>
+      <div class="form-row">
+        <button id="saveBtn" class="btn">Save Settings</button>
+      </div>
+      <div class="form-row">
+        <button id="fetchBtn" class="btn">Fetch Backend Info</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const defaultSettings = { extraInfo: "CurrentEditorCameraPosition:X255/Y135 Thinking:True", apiUrl: "https://corsproxy.io?url=https://level-editor-ai-api.jarvisdevilyt.workers.dev" };
+    let settings = {};
+
+    function showDialog(type, title, msg) {
+      $("<div></div>").html(msg).dialog({ title: title, modal: true, buttons: { "OK": function() { $(this).dialog("close"); } } });
+    }
+
+    function loadSettings() {
+      try {
+        let saved = JSON.parse(localStorage.getItem("dashAISettings"));
+        settings = saved ? { ...defaultSettings, ...saved } : { ...defaultSettings };
+      } catch { settings = { ...defaultSettings }; }
+    }
+
+    function saveSettings() {
+      localStorage.setItem("dashAISettings", JSON.stringify(settings));
+    }
+
+    $(function() {
+      $("#tabs").tabs();
+      loadSettings();
+
+      $("#extraInput").val(settings.extraInfo);
+      $("#apiInput").val(settings.apiUrl);
+
+      $("#saveBtn").click(function() {
+        settings.extraInfo = $("#extraInput").val().trim() || settings.extraInfo;
+        settings.apiUrl = $("#apiInput").val().trim() || settings.apiUrl;
+        saveSettings();
+        showDialog("info", "Settings Saved", "Settings saved.");
+      });
+
+      $("#sendBtn").click(function() {
+        const prompt = $("#promptInput").val().trim();
+        if (!prompt) return;
+
+        $("#sendBtn").prop("disabled", true);
+        const historyItem = `Prompt: ${prompt} | Extra: ${settings.extraInfo}`;
+        $("#historyList").append(`<li>${historyItem}</li>`);
+
+        processPrompt(prompt).catch(err => { showDialog("error", "Error", err.message || err); }).finally(() => { $("#sendBtn").prop("disabled", false); });
+      });
+
+      $("#injectBtn").click(function() {
+        const content = $("#injectInput").val().trim();
+        if (!content) { showDialog("error", "Error", "Please enter level data."); return; }
+
+        sendWs(content).then(() => { showDialog("info", "Injected", "Objects sent successfully."); }).catch(err => { showDialog("error", "Error", err); });
+      });
+
+      $("#fetchBtn").click(fetchBackendInfo);
+    });
+
+    async function processPrompt(prompt) {
+      const url = `${settings.apiUrl}/?message=${encodeURIComponent(`PROMPT-${prompt} EXTRAINFO-${settings.extraInfo}`)}`;
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Server responded with HTTP ${response.status}`);
+
+      const text = await response.text();
+      const [rawLvl, thoughts] = text.split("|>|>|>|");
+
+      $("#rawOutput").val(rawLvl);
+      $("#thoughtsOutput").val(thoughts || "");
+
+      if (rawLvl.trim()) await sendWs(rawLvl.trim());
+
+      showDialog("info", "Success", "Objects placed.");
+    }
+
+    function sendWs(obj) {
+      return new Promise((resolve, reject) => {
+        const socket = new WebSocket("ws://127.0.0.1:1313");
+        socket.onopen = () => socket.send(JSON.stringify({ action: "ADD_OBJECTS", objects: obj, id: 2 }));
+        socket.onerror = () => reject("Error placing objects, you need to be in the editor while the WSLiveEditor geode mod installed and enabled.");
+        socket.onclose = resolve;
+      });
+    }
+
+    async function fetchBackendInfo() {
+      try {
+        const response = await fetch(`${settings.apiUrl}/backendinfo`);
+        if (!response.ok) throw new Error("Error fetching backend.");
+        const msg = await response.text();
+        showDialog("info", "Backend Info", msg);
+      } catch {
+        showDialog("error", "Error", "Error fetching backend info.");
+      }
+    }
+
+    function scrafty() {
+      const gif = new Image();
+      gif.onload = () => {
+        const scrafty = document.createElement('img');
+        scrafty.src = gif.src;
+        scrafty.style.position = 'fixed';
+        scrafty.style.width = '256px';
+        scrafty.style.height = '256px';
+        scrafty.style.bottom = '0';
+        scrafty.style.right = '0';
+        scrafty.style.zIndex = '9999';
+        scrafty.style.pointerEvents = 'none';
+        document.body.appendChild(scrafty);
+      };
+      gif.src = 'https://i.ibb.co/m5s46Xck/ezgif-7afb60b49f6499.gif';
+    }
+
+    scrafty();
+  </script>
+</body>
+</html>
